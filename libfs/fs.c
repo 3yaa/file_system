@@ -23,8 +23,8 @@ struct superblock {
 };
 
 struct root_entry {
-	char filename[FS_FILENAME_LEN];
-	uint32_t file_size;
+	char *filename;
+	uint32_t fileSize;
 	uint16_t first_data_index;
 	uint8_t padding[10];
 };
@@ -128,30 +128,23 @@ int fs_info(void) {
 }
 
 /* Check if a filename already exists */
+int fs_create(const char *filename) {
+	// return -1 if disk count is empty
+	if ( block_disk_count() == -1 ) return -1;  
+  	// if len is > 16, return -1
+  	if ( strlen(filename) > FS_FILENAME_LEN ) return -1;
 
-int fs_create(const char *fulename) {
-
-  // return -1 if disk count is empty
-  if ( block_disk_count() == -1 ) return -1;  
-
-  // if len is > 16, return -1
-  if ( strlen(filename) > FS_FILENAME_LEN ) {
-    return -1;
-  }
-
-  for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-    if ( root[i].filename == NULL ) {
-      root[i].filename = malloc(sizeof(char) * strlen(filename));
-      root[i].filename = filename;
-      root[i].filesize = 0;
-      // do FAT_EOC thing later
-      return 0;
-    }
-  }
-
-  // return since there is no empty roots
-  return -1;
-
+  	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
+    	if ( root[i].filename == NULL ) {
+      		root[i].filename = malloc(strlen(filename) * sizeof(char));
+      		root[i].filename = filename;
+      		root[i].fileSize = 0;
+      		// do FAT_EOC thing later
+      		return 0;
+		}
+	}
+	// return since there is no empty roots
+	return -1;
 }
 
 int fs_delete(const char *filename) {
