@@ -147,8 +147,31 @@ int fs_create(const char *filename) {
 	return -1;
 }
 
-int fs_delete(const char *filename) {
-	/* TODO: Phase 2 */
+int fs_delete(const char *filename)
+{
+
+	// check if disk count exists
+	if ( block_disk_count() == -1 ) return -1;
+
+	// if the file name is > 16, invalid filename
+	if ( strlen(filename) > FS_FILENAME_LEN ) return -1;
+
+	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
+
+		if ( root[i].filename == NULL ) {
+			// skip, since you can't do memcmp on a NULL string
+		} else if ( root[i].filename ) { // Not NULL
+			if ( memcmp(root[i].filename, filename ) == 0 ) {
+				// correct file
+				free(root[i].filename);
+				// empty data blocks
+				return 0;
+			}
+		}
+	}
+
+	return -1;
+
 }
 
 int fs_ls(void) {
