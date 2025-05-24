@@ -127,8 +127,29 @@ int fs_info(void) {
 	return 0;
 }
 
-int fs_create(const char *filename) {
-	/* TODO: Phase 2 */
+int fs_create(const char *fulename) {
+
+  // return -1 if disk count is empty
+  if ( block_disk_count() == -1 ) return -1;  
+
+  // if len is > 16, return -1
+  if ( strlen(filename) > FS_FILENAME_LEN ) {
+    return -1;
+  }
+
+  for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
+    if ( root[i].filename == NULL ) {
+      root[i].filename = malloc(sizeof(char) * strlen(filename));
+      root[i].filename = filename;
+      root[i].filesize = 0;
+      // do FAT_EOC thing later
+      return 0;
+    }
+  }
+
+  // return since there is no empty roots
+  return -1;
+
 }
 
 int fs_delete(const char *filename) {
