@@ -167,10 +167,15 @@ int fs_delete(const char *filename) {
 int fs_ls(void) {
 	if ( block_disk_count() == -1 ) return -1;
 
+	int data_block; // dummy value for compilation
+	printf("FS Ls:\n");
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-		if ( root[i].filename != NULL ) printf("%s ", root[i].filename);
+		if ( root[i].filename != NULL ) {
+			printf("file: %s, ", root[i].filename);
+			printf("size: %d, ", root[i].fileSize);
+			printf("data_black: %d\n", data_block);
+		}
 	}
-	printf('\n');
 	return 0;
 }
 
