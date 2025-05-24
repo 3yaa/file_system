@@ -127,6 +127,8 @@ int fs_info(void) {
 	return 0;
 }
 
+/* Check if a filename already exists */
+
 int fs_create(const char *fulename) {
 
   // return -1 if disk count is empty
