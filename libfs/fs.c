@@ -165,7 +165,13 @@ int fs_delete(const char *filename) {
 }
 
 int fs_ls(void) {
-	/* TODO: Phase 2 */
+	if ( block_disk_count() == -1 ) return -1;
+
+	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
+		if ( root[i].filename != NULL ) printf("%s ", root[i].filename);
+	}
+	printf('\n');
+	return 0;
 }
 
 int fs_open(const char *filename) {
