@@ -1,6 +1,19 @@
-# Target library
-lib := libfs.a
+CC      ?= gcc
+CFLAGS  ?=  -Wall -Wextra -Werror
 
-all: $(lib)
+SRC     := disk.c fs.c
+OBJ     := $(SRC:.c=.o)
+LIB     := libfs.a
 
-## TODO: Phase 1
+.PHONY: all
+all: $(LIB)
+
+$(LIB): $(OBJ)
+	ar rcs $@ $^
+
+%.o: %.c fs.h disk.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+.PHONY: clean
+clean:
+	$(RM) $(OBJ) $(LIB)

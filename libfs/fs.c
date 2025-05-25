@@ -127,22 +127,31 @@ int fs_info(void) {
 	return 0;
 }
 
-/* Check if a filename already exists */
+/* 
+-Check if a filename already exists 
+-initalize first_data_index 
+*/
 int fs_create(const char *filename) {
 	// return -1 if disk count is empty
 	if ( block_disk_count() == -1 ) return -1;  
   	// if len is > 16, return -1
   	if ( strlen(filename) > FS_FILENAME_LEN ) return -1;
 
+	printf("hi\n");
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
     	if ( root[i].filename == NULL ) {
-      		root[i].filename = malloc(strlen(filename) * sizeof(char));
-      		root[i].filename = filename;
+      		root[i].filename = calloc(strlen(filename), sizeof(char));
+			if (root[i].filename) {
+				printf("baba\n");
+				if (strcpy(root[i].filename, filename)) return -1;
+			}
       		root[i].fileSize = 0;
+			root[i].first_data_index = sb.data_block_count; 
       		// do FAT_EOC thing later
       		return 0;
 		}
 	}
+	printf("hi2\n");
 	// return since there is no empty roots
 	return -1;
 }
@@ -154,7 +163,7 @@ int fs_delete(const char *filename) {
 	if ( strlen(filename) > FS_FILENAME_LEN ) return -1;
 
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-		if ( memcmp(root[i].filename, filename, sizeof(filename)) == 0 ) {
+		if ( memcmp(root[i].filename, filename, strlen(filename)) == 0 ) {
 			// correct file
 			free(root[i].filename);
 			// empty data blocks
@@ -167,38 +176,54 @@ int fs_delete(const char *filename) {
 int fs_ls(void) {
 	if ( block_disk_count() == -1 ) return -1;
 
-	int data_block; // dummy value for compilation
 	printf("FS Ls:\n");
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
 		if ( root[i].filename != NULL ) {
 			printf("file: %s, ", root[i].filename);
-			printf("size: %d, ", root[i].fileSize);
-			printf("data_black: %d\n", data_block);
+			printf("size: %u, ", root[i].fileSize);
+			printf("data_black: %u\n", root[i].first_data_index);
 		}
 	}
 	return 0;
 }
 
 int fs_open(const char *filename) {
-	/* TODO: Phase 3 */
+    (void)filename;
+    /* TODO: Phase 3 */
+    return 0;
 }
 
 int fs_close(int fd) {
-	/* TODO: Phase 3 */
+    (void)fd;
+    /* TODO: Phase 3 */
+    return 0;
 }
 
 int fs_stat(int fd) {
-	/* TODO: Phase 3 */
+    (void)fd;
+    /* TODO: Phase 3 */
+    return 0;
 }
 
 int fs_lseek(int fd, size_t offset) {
-	/* TODO: Phase 3 */
+    (void)fd;
+    (void)offset;
+    /* TODO: Phase 3 */
+    return 0;
 }
 
 int fs_write(int fd, void *buf, size_t count) {
-	/* TODO: Phase 4 */
+    (void)fd;
+    (void)buf;
+    (void)count;
+    /* TODO: Phase 4 */
+    return 0;
 }
 
 int fs_read(int fd, void *buf, size_t count) {
-	/* TODO: Phase 4 */
+    (void)fd;
+    (void)buf;
+    (void)count;
+    /* TODO: Phase 4 */
+    return 0;
 }
