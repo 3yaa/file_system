@@ -1,0 +1,40 @@
+int fs_open(const char *filename) {
+    (void)filename;
+    /* TODO: Phase 3 */
+    return 0;
+}
+
+int fs_close(int fd) {
+    (void)fd;
+    /* TODO: Phase 3 */
+    return 0;
+}
+
+int fs_stat(int fd) {
+    (void)fd;
+    /* TODO: Phase 3 */
+    return 0;
+}
+
+int fs_lseek(int fd, size_t offset) {
+    (void)fd;
+    (void)offset;
+    /* TODO: Phase 3 */
+    return 0;
+}
+
+int fs_write(int fd, void *buf, size_t count) {
+    (void)fd;
+    (void)buf;
+    (void)count;
+    /* TODO: Phase 4 */
+    return 0;
+}
+
+int fs_read(int fd, void *buf, size_t count) {
+    (void)fd;
+    (void)buf;
+    (void)count;
+    /* TODO: Phase 4 */
+    return 0;
+}
