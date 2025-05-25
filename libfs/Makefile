@@ -3,4 +3,4 @@ lib := libfs.a
 
 all: $(lib)
 
-## TODO
+## TODO: Phase 1
