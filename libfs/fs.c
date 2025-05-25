@@ -23,7 +23,7 @@ struct superblock {
 };
 
 struct root_entry {
-	char *filename;
+	char filename[FS_FILENAME_LEN];
 	uint32_t fileSize;
 	uint16_t first_data_index;
 	uint8_t padding[10];
@@ -75,12 +75,15 @@ int fs_mount(const char *diskname) {
 		}
 	}
 	//load root dir
-	// root->filename = {0};
 	if (block_read(sb.root_dir_index, root) < 0) {
 		free(fat); fat = NULL;
 		block_disk_close();
 		return -1;
 	}
+	for (uint8_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
+
+	}
+
 	return 0;
 }
 
@@ -129,24 +132,20 @@ int fs_info(void) {
 
 /* 
 -Check if a filename already exists 
--initalize first_data_index 
+-initialize first_data_index -- maybe done on 149?
 */
 int fs_create(const char *filename) {
 	// return -1 if disk count is empty
 	if ( block_disk_count() == -1 ) return -1;  
   	// if len is > 16, return -1
-  	if ( strlen(filename) > FS_FILENAME_LEN ) return -1;
+  	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
 	printf("hi\n");
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-    	if ( root[i].filename == NULL ) {
-      		root[i].filename = calloc(strlen(filename), sizeof(char));
-			if (root[i].filename) {
-				printf("baba\n");
-				if (strcpy(root[i].filename, filename)) return -1;
-			}
-      		root[i].fileSize = 0;
-			root[i].first_data_index = sb.data_block_count; 
+    	if ( root[i].filename[0] == '\0' ) {
+			strncpy(root[i].filename, filename, FS_FILENAME_LEN-1);
+			root[i].fileSize = 0;
+			root[i].first_data_index = FAT_EOC; 
       		// do FAT_EOC thing later
       		return 0;
 		}
@@ -165,7 +164,7 @@ int fs_delete(const char *filename) {
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
 		if ( memcmp(root[i].filename, filename, strlen(filename)) == 0 ) {
 			// correct file
-			free(root[i].filename);
+			// free(root[i].filename);
 			// empty data blocks
 			return 0;
 		}
