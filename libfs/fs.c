@@ -22,11 +22,19 @@ struct superblock {
 	uint8_t padding[4079];
 };
 
+struct file {
+	
+	uint8_t fd;
+	uint32_t file_offset;
+};
+
 struct root_entry {
+	char filename[FS_FILENAME_LEN];
 	char filename[FS_FILENAME_LEN];
 	uint32_t fileSize;
 	uint16_t first_data_index;
 	uint8_t padding[10];
+
 };
 
 static struct superblock sb;
@@ -140,12 +148,18 @@ int fs_create(const char *filename) {
   	// if len is > 16, return -1
   	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
-	printf("hi\n");
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
     	if ( root[i].filename[0] == '\0' ) {
 			strncpy(root[i].filename, filename, FS_FILENAME_LEN-1);
 			root[i].fileSize = 0;
 			root[i].first_data_index = FAT_EOC; 
+    	if ( root[i].filename == NULL ) {
+      		root[i].filename = calloc(strlen(filename), sizeof(char));
+			if (root[i].filename) {
+				if (strcpy(root[i].filename, filename)) return -1;
+			}
+      		root[i].fileSize = 0;
+			root[i].first_data_index = sb.data_block_count; 
       		// do FAT_EOC thing later
       		return 0;
 		}
@@ -187,21 +201,29 @@ int fs_ls(void) {
 }
 
 int fs_open(const char *filename) {
-    (void)filename;
-    /* TODO: Phase 3 */
-    return 0;
+	if (block_disk_count() == -1) return -1;
+	if (!filename) return -1;
+	//
+	for (size_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (memcmp(root[i].filename, filename, sizeof(filename)) < 0) continue;
+		//
+		struct file_descriptor fd;
+		fd.file_offset = 0;
+		fd.fds 
+	}
+	return 0;
 }
 
 int fs_close(int fd) {
-    (void)fd;
-    /* TODO: Phase 3 */
-    return 0;
+	(void)fd;
+	/* TODO: Phase 3 */
+	return 0;
 }
 
 int fs_stat(int fd) {
-    (void)fd;
-    /* TODO: Phase 3 */
-    return 0;
+	(void)fd;
+	/* TODO: Phase 3 */
+	return 0;
 }
 
 int fs_lseek(int fd, size_t offset) {
