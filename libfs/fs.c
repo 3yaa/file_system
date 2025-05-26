@@ -22,24 +22,23 @@ struct superblock {
 	uint8_t padding[4079];
 };
 
-struct file {
-	
-	uint8_t fd;
+struct open_file {
+	int on; //0|1
+	uint8_t root_index;
 	uint32_t file_offset;
 };
 
 struct root_entry {
 	char filename[FS_FILENAME_LEN];
-	char filename[FS_FILENAME_LEN];
 	uint32_t fileSize;
 	uint16_t first_data_index;
 	uint8_t padding[10];
-
 };
 
 static struct superblock sb;
 static uint16_t *fat = NULL;
 static struct root_entry root[FS_FILE_MAX_COUNT];
+static struct open_file fd_table[FS_FILE_MAX_COUNT];
 
 int fs_mount(const char *diskname) {
 	if (!diskname) return -1;
@@ -88,10 +87,6 @@ int fs_mount(const char *diskname) {
 		block_disk_close();
 		return -1;
 	}
-	for (uint8_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
-
-	}
-
 	return 0;
 }
 
@@ -153,18 +148,10 @@ int fs_create(const char *filename) {
 			strncpy(root[i].filename, filename, FS_FILENAME_LEN-1);
 			root[i].fileSize = 0;
 			root[i].first_data_index = FAT_EOC; 
-    	if ( root[i].filename == NULL ) {
-      		root[i].filename = calloc(strlen(filename), sizeof(char));
-			if (root[i].filename) {
-				if (strcpy(root[i].filename, filename)) return -1;
-			}
-      		root[i].fileSize = 0;
-			root[i].first_data_index = sb.data_block_count; 
       		// do FAT_EOC thing later
       		return 0;
 		}
 	}
-	printf("hi2\n");
 	// return since there is no empty roots
 	return -1;
 }
@@ -173,7 +160,7 @@ int fs_delete(const char *filename) {
 	// check if disk count exists
 	if ( block_disk_count() == -1 ) return -1;
 	// if the file name is > 16, invalid filename
-	if ( strlen(filename) > FS_FILENAME_LEN ) return -1;
+	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
 		if ( memcmp(root[i].filename, filename, strlen(filename)) == 0 ) {
@@ -201,35 +188,50 @@ int fs_ls(void) {
 }
 
 int fs_open(const char *filename) {
-	if (block_disk_count() == -1) return -1;
-	if (!filename) return -1;
-	//
+	if (block_disk_count() == -1) return -1; //not mounted
+	if (!filename) return -1; //no filename
+	if (strlen(filename) >= FS_FILENAME_LEN) return -1; //invalid filename-size
+	//check for open fd
 	for (size_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
 		if (memcmp(root[i].filename, filename, sizeof(filename)) < 0) continue;
-		//
-		struct file_descriptor fd;
-		fd.file_offset = 0;
-		fd.fds 
+		for (size_t j = 0; j < FS_FILE_MAX_COUNT; j++) {
+			if (!fd_table[j].on) {
+				fd_table[j].on = 1;
+				fd_table[j].root_index = i;
+				fd_table[j].file_offset = 0;
+				return j;
+			}
+		}
+		return -1; //fd_table full
 	}
-	return 0;
+	return -1; //invalid filename-DNE
 }
 
 int fs_close(int fd) {
-	(void)fd;
-	/* TODO: Phase 3 */
+	if (block_disk_count() == -1) return -1; //not mounted
+	if (fd < 0 || fd >= FS_FILE_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (!fd_table[fd].on) return -1; //invalid fd-not in use
+	//close
+	fd_table[fd].on = 0;
+	fd_table[fd].file_offset = 0;
 	return 0;
 }
 
 int fs_stat(int fd) {
-	(void)fd;
-	/* TODO: Phase 3 */
-	return 0;
+	if (block_disk_count() == -1) return -1; //not mounted
+	if (fd < 0 || fd >= FS_FILE_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (!fd_table[fd].on) return -1; //invalid fd-not in use
+	//
+	return root[fd_table[fd].root_index].fileSize;
 }
 
 int fs_lseek(int fd, size_t offset) {
-    (void)fd;
-    (void)offset;
-    /* TODO: Phase 3 */
+	if (block_disk_count() == -1) return -1; //not mounted
+	if (fd < 0 || fd >= FS_FILE_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (!fd_table[fd].on) return -1; //invalid fd-not in use
+	if (offset > fs_stat(fd)) return -1; //offset > file_size
+	//
+	fd_table->file_offset = offset;
     return 0;
 }
 
