@@ -38,7 +38,7 @@ struct root_entry {
 static struct superblock sb;
 static uint16_t *fat = NULL;
 static struct root_entry root[FS_FILE_MAX_COUNT];
-static struct open_file fd_table[FS_FILE_MAX_COUNT];
+static struct open_file fd_table[FS_OPEN_MAX_COUNT];
 
 int fs_mount(const char *diskname) {
 	if (!diskname) return -1;
@@ -133,27 +133,32 @@ int fs_info(void) {
 	return 0;
 }
 
-/* 
--Check if a filename already exists 
--initialize first_data_index -- maybe done on 149?
-*/
+// might have to do datablock stuff
 int fs_create(const char *filename) {
 	// return -1 if disk count is empty
 	if ( block_disk_count() == -1 ) return -1;  
+	// invalid filename
+	if ( !filename ) return -1;
   	// if len is > 16, return -1
   	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
+	// @index: index of first free file
+	int index = FS_FILE_MAX_COUNT;
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-    	if ( root[i].filename[0] == '\0' ) {
-			strncpy(root[i].filename, filename, FS_FILENAME_LEN-1);
-			root[i].fileSize = 0;
-			root[i].first_data_index = FAT_EOC; 
-      		// do FAT_EOC thing later
-      		return 0;
+    	if ( strcmp(root[i].filename, filename) == 0 ) {
+			return -1; //filename alrdy exists
+		}
+		if ( root[i].filename[0] == '\0' && i < index) {
+			index = i;
 		}
 	}
-	// return since there is no empty roots
-	return -1;
+	if ( index -= FS_FILE_MAX_COUNT ) return -1; //max_file in root alrdy
+	//
+	strncpy(root[index].filename, filename, FS_FILENAME_LEN-1);
+	root[index].filename[FS_FILENAME_LEN-1] = '\0';
+	root[index].fileSize = 0;
+	root[index].first_data_index = FAT_EOC; 
+	return 0; 
 }
 
 int fs_delete(const char *filename) {
@@ -164,9 +169,9 @@ int fs_delete(const char *filename) {
 
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
 		if ( memcmp(root[i].filename, filename, strlen(filename)) == 0 ) {
-			// correct file
-			// free(root[i].filename);
-			// empty data blocks
+			root[i].filename[0] = '\0'; // might have to set other indicies to '\0' as well 
+			root[i].fileSize = 0;
+			root[i].first_data_index = FAT_EOC; 
 			return 0;
 		}
 	}
@@ -193,8 +198,8 @@ int fs_open(const char *filename) {
 	if (strlen(filename) >= FS_FILENAME_LEN) return -1; //invalid filename-size
 	//check for open fd
 	for (size_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (memcmp(root[i].filename, filename, sizeof(filename)) < 0) continue;
-		for (size_t j = 0; j < FS_FILE_MAX_COUNT; j++) {
+		if (memcmp(root[i].filename, filename, sizeof(filename)) != 0) continue;
+		for (size_t j = 0; j < FS_OPEN_MAX_COUNT; j++) {
 			if (!fd_table[j].on) {
 				fd_table[j].on = 1;
 				fd_table[j].root_index = i;
@@ -209,7 +214,7 @@ int fs_open(const char *filename) {
 
 int fs_close(int fd) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_FILE_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	//close
 	fd_table[fd].on = 0;
@@ -219,7 +224,7 @@ int fs_close(int fd) {
 
 int fs_stat(int fd) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_FILE_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	//
 	return root[fd_table[fd].root_index].fileSize;
@@ -227,26 +232,68 @@ int fs_stat(int fd) {
 
 int fs_lseek(int fd, size_t offset) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_FILE_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (offset > fs_stat(fd)) return -1; //offset > file_size
 	//
-	fd_table->file_offset = offset;
-    return 0;
+	fd_table[fd].file_offset = offset;
+	return 0;
 }
 
 int fs_write(int fd, void *buf, size_t count) {
-    (void)fd;
-    (void)buf;
-    (void)count;
-    /* TODO: Phase 4 */
-    return 0;
+    if (block_disk_count() == -1) return -1; // not mounted
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (!fd_table[fd].on) return -1; //invalid fd-not in use
+	if (!buf) return -1; // buffer is empty
+	if (count < 0) return -1;
+	/* TODO: Phase 4 */
+	return 0;
+}
+
+int resize(void **buf, size_t new_bytes) {
+	void *temp = realloc(buf, new_bytes);
+	if (!temp) {
+		free(buf);
+		buf = NULL;
+		return -1;
+	}
+	*buf = temp;
+	return 0;
+}
+
+size_t find_eoc(const uint8_t *buf) {
+	size_t i = 0;
+	while (memcmp(buf[i], FAT_EOC, sizeof(FAT_EOC) != 0)) {
+		i++;
+	}
+	return i;
 }
 
 int fs_read(int fd, void *buf, size_t count) {
-    (void)fd;
-    (void)buf;
-    (void)count;
-    /* TODO: Phase 4 */
-    return 0;
+	if (block_disk_count() == -1) return -1; //not mounted
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (!fd_table[fd].on) return -1; //invalid fd-not in use
+	if (!buf) return -1; //invalid buf
+	if (count <= 0) return -1;
+	//
+	struct root_entry *re = &root[fd_table[fd].root_index];
+	size_t start = fd_table[fd].file_offset;
+	size_t end = count;
+	size_t file_size = fs_stat(fd);
+	//
+	if (start + end > fs_stat(fd)) {
+		end = fs_stat(fd) - start;
+	}
+
+	uint8_t *bounced_buf = NULL;
+	bounced_buf = malloc(BLOCK_SIZE*sizeof(uint8_t));
+	for (size_t i = 0; own_count < count; i++) {
+		block_read(1+i, bounced_buf);
+		own_count += BLOCK_SIZE;
+		if (resize((void**)&bounced_buf, BLOCK_SIZE) < 0) return -1; //alloc fail
+	}
+	//
+	if (memcpy(buf, bounced_buf+start, (end-start)*sizeof(uint8_t)) != 0) return -1;
+	
+	return (end - start); // return number of bytes read		
 }
