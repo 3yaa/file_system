@@ -145,7 +145,7 @@ int fs_create(const char *filename) {
 	// @index: index of first free file
 	int index = FS_FILE_MAX_COUNT;
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-    	if ( strcmp(root[i].filename, filename) == 0 ) {
+    	if ( strncmp(root[i].filename, filename, FS_FILENAME_LEN ) == 0 ) {
 			return -1; //filename alrdy exists
 		}
 		if ( root[i].filename[0] == '\0' && i < index) {
@@ -154,10 +154,11 @@ int fs_create(const char *filename) {
 	}
 	if ( index -= FS_FILE_MAX_COUNT ) return -1; //max_file in root alrdy
 	//
-	strncpy(root[index].filename, filename, FS_FILENAME_LEN-1);
-	root[index].filename[FS_FILENAME_LEN-1] = '\0';
+	memset(root[index].filename, 0, FS_FILENAME_LEN);
+    memcpy(root[index].filename, filename, strlen(filename));
 	root[index].fileSize = 0;
-	root[index].first_data_index = FAT_EOC; 
+	root[index].first_data_index = FAT_EOC;
+	//put into disk?--write root into disk
 	return 0; 
 }
 
@@ -168,8 +169,8 @@ int fs_delete(const char *filename) {
 	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-		if ( memcmp(root[i].filename, filename, strlen(filename)) == 0 ) {
-			root[i].filename[0] = '\0'; // might have to set other indicies to '\0' as well 
+		if ( memcmp(root[i].filename, filename, FS_FILENAME_LEN ) == 0 ) {
+			root[i].filename[0] = '\0'; 
 			root[i].fileSize = 0;
 			root[i].first_data_index = FAT_EOC; 
 			return 0;
@@ -183,7 +184,7 @@ int fs_ls(void) {
 
 	printf("FS Ls:\n");
 	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-		if ( root[i].filename != NULL ) {
+		if ( root[i].filename[0] != '\0' ) {
 			printf("file: %s, ", root[i].filename);
 			printf("size: %u, ", root[i].fileSize);
 			printf("data_black: %u\n", root[i].first_data_index);
@@ -198,7 +199,7 @@ int fs_open(const char *filename) {
 	if (strlen(filename) >= FS_FILENAME_LEN) return -1; //invalid filename-size
 	//check for open fd
 	for (size_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (memcmp(root[i].filename, filename, sizeof(filename)) != 0) continue;
+		if (memcmp(root[i].filename, filename, FS_FILENAME_LEN) != 0) continue;
 		for (size_t j = 0; j < FS_OPEN_MAX_COUNT; j++) {
 			if (!fd_table[j].on) {
 				fd_table[j].on = 1;
@@ -234,7 +235,8 @@ int fs_lseek(int fd, size_t offset) {
 	if (block_disk_count() == -1) return -1; //not mounted
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
-	if (offset > fs_stat(fd)) return -1; //offset > file_size
+	size_t file_size = fs_stat(fd);
+	if (offset > file_size) return -1; //offset > file_size
 	//
 	fd_table[fd].file_offset = offset;
 	return 0;
@@ -245,28 +247,20 @@ int fs_write(int fd, void *buf, size_t count) {
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; // buffer is empty
-	if (count < 0) return -1;
 	/* TODO: Phase 4 */
+	(void)count;
+
 	return 0;
 }
 
-int resize(void **buf, size_t new_bytes) {
-	void *temp = realloc(buf, new_bytes);
-	if (!temp) {
-		free(buf);
-		buf = NULL;
-		return -1;
+static size_t start_block_index(int fd) {
+	size_t start_index = root[fd_table[fd].root_index].first_data_index;
+	size_t skipped_blocks = start_index/BLOCK_SIZE;
+	while (skipped_blocks && start_index != FAT_EOC) {
+		start_index = fat[start_index];
+		skipped_blocks--;
 	}
-	*buf = temp;
-	return 0;
-}
-
-size_t find_eoc(const uint8_t *buf) {
-	size_t i = 0;
-	while (memcmp(buf[i], FAT_EOC, sizeof(FAT_EOC) != 0)) {
-		i++;
-	}
-	return i;
+	return start_index; 
 }
 
 int fs_read(int fd, void *buf, size_t count) {
@@ -274,26 +268,32 @@ int fs_read(int fd, void *buf, size_t count) {
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; //invalid buf
-	if (count <= 0) return -1;
 	//
-	struct root_entry *re = &root[fd_table[fd].root_index];
 	size_t start = fd_table[fd].file_offset;
-	size_t end = count;
 	size_t file_size = fs_stat(fd);
+	if (start >= file_size) return 0; //nothing to read
+	size_t to_read = (start+count > file_size) ? file_size - start : count;
 	//
-	if (start + end > fs_stat(fd)) {
-		end = fs_stat(fd) - start;
+	size_t block_index = start_block_index(fd);
+	size_t start_byte = start % BLOCK_SIZE; //where to start in block
+	uint8_t bounce_buf[BLOCK_SIZE];
+	uint8_t *temp_buf = buf;
+	size_t read = to_read;
+	while (read > 0) {
+		if (block_read(block_index, bounce_buf) < 0) return -1;
+		size_t block_chunk = BLOCK_SIZE - start_byte;
+		if (block_chunk > read) block_chunk = read;
+		memcpy(temp_buf, bounce_buf+start_byte, block_chunk);
+		//next block
+		start_byte = 0; //after first no longer needs
+		read -= block_chunk;
+		temp_buf += block_chunk;
+		if (read) {
+			block_index = fat[block_index];
+			if (block_index == FAT_EOC) break;
+		}
 	}
-
-	uint8_t *bounced_buf = NULL;
-	bounced_buf = malloc(BLOCK_SIZE*sizeof(uint8_t));
-	for (size_t i = 0; own_count < count; i++) {
-		block_read(1+i, bounced_buf);
-		own_count += BLOCK_SIZE;
-		if (resize((void**)&bounced_buf, BLOCK_SIZE) < 0) return -1; //alloc fail
-	}
-	//
-	if (memcpy(buf, bounced_buf+start, (end-start)*sizeof(uint8_t)) != 0) return -1;
-	
-	return (end - start); // return number of bytes read		
+	size_t actual_read = to_read-read;
+	fs_lseek(fd, actual_read);
+	return (int)actual_read;
 }
