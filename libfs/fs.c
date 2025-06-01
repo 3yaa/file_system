@@ -248,7 +248,31 @@ int fs_write(int fd, void *buf, size_t count) {
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; // buffer is empty
 	/* TODO: Phase 4 */
-	(void)count;
+	size_t start = fd_table[fd].file_offset;
+	size_t file_size = fs_stat(fd);
+	if ( start >= file_size ) return -1; // might need to modify this since maybe we just expand size here?
+	//
+	size_t block_index = start_block_index(fd);
+	size_t start_byte = start % BLOCK_SIZE;
+	uint8_t bounce_buf[BLOCK_SIZE];
+	uint8_t *temp_buf = buf;
+	size_t write = count;
+	while ( write > 0 ) {
+		if(block_write(block_index, bounce_buf) < 0) { // disk may be full
+			return count - write; // actual # of bytes written
+		}
+		size_t block_chunk = BLOCK_SIZE - start_byte;
+		if ( block_chunk > write ) block_chunk = write;
+		memcpy(temp_buf, bounce_buf + start_byte, block_chunk);
+		// next block
+		start_byte = 0;
+		write -= block_chunk;
+		temp_buf += block_chunk;
+		if (write) {
+			block_index = fat[block_index];
+			if (block_index == FAT_EOC) break;
+		}
+	}	
 
 	return 0;
 }
