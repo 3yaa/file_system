@@ -159,6 +159,7 @@ int fs_create(const char *filename) {
 	root[index].fileSize = 0;
 	root[index].first_data_index = FAT_EOC;
 	//put into disk?--write root into disk
+	if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 	return 0; 
 }
 
@@ -173,6 +174,7 @@ int fs_delete(const char *filename) {
 			root[i].filename[0] = '\0'; 
 			root[i].fileSize = 0;
 			root[i].first_data_index = FAT_EOC; 
+			if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 			return 0;
 		}
 	}
@@ -215,7 +217,7 @@ int fs_open(const char *filename) {
 
 int fs_close(int fd) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	//close
 	fd_table[fd].on = 0;
@@ -225,7 +227,7 @@ int fs_close(int fd) {
 
 int fs_stat(int fd) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	//
 	return root[fd_table[fd].root_index].fileSize;
@@ -233,7 +235,7 @@ int fs_stat(int fd) {
 
 int fs_lseek(int fd, size_t offset) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	size_t file_size = fs_stat(fd);
 	if (offset > file_size) return -1; //offset > file_size
@@ -244,7 +246,7 @@ int fs_lseek(int fd, size_t offset) {
 
 int fs_write(int fd, void *buf, size_t count) {
     if (block_disk_count() == -1) return -1; // not mounted
-	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; // buffer is empty
 	/* TODO: Phase 4 */
@@ -252,7 +254,7 @@ int fs_write(int fd, void *buf, size_t count) {
 	size_t file_size = fs_stat(fd);
 	if ( start >= file_size ) return -1; // might need to modify this since maybe we just expand size here?
 	//
-	size_t block_index = start_block_index(fd);
+	size_t block_index = start_block_index(fd, start);
 	size_t start_byte = start % BLOCK_SIZE;
 	uint8_t bounce_buf[BLOCK_SIZE];
 	uint8_t *temp_buf = buf;
@@ -277,9 +279,9 @@ int fs_write(int fd, void *buf, size_t count) {
 	return 0;
 }
 
-static size_t start_block_index(int fd) {
+static size_t start_block_index(int fd, size_t offset) {
 	size_t start_index = root[fd_table[fd].root_index].first_data_index;
-	size_t skipped_blocks = start_index/BLOCK_SIZE;
+	size_t skipped_blocks = offset/BLOCK_SIZE;
 	while (skipped_blocks && start_index != FAT_EOC) {
 		start_index = fat[start_index];
 		skipped_blocks--;
@@ -289,7 +291,7 @@ static size_t start_block_index(int fd) {
 
 int fs_read(int fd, void *buf, size_t count) {
 	if (block_disk_count() == -1) return -1; //not mounted
-	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invlaid fd-out_bound
+	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; //invalid buf
 	//
@@ -298,7 +300,7 @@ int fs_read(int fd, void *buf, size_t count) {
 	if (start >= file_size) return 0; //nothing to read
 	size_t to_read = (start+count > file_size) ? file_size - start : count;
 	//
-	size_t block_index = start_block_index(fd);
+	size_t block_index = start_block_index(fd, start);
 	size_t start_byte = start % BLOCK_SIZE; //where to start in block
 	uint8_t bounce_buf[BLOCK_SIZE];
 	uint8_t *temp_buf = buf;
