@@ -254,7 +254,15 @@ static size_t start_block_index(int fd, size_t offset) {
 	return start_index; 
 }
 
+int get_FAT() {
+	for( int i = 0; i < sb.fat_block_count; i++ ) {
+		if ( fat[i] == 0 ) { return i; } 
+	}
+	return -1;
+}
 
+// this might be stupid, but when we go to an existing next FAT Block, do we need to recalculate offset of block? or am i tripping
+// i.e. do we need to calculate start_byte every time or nah
 int fs_write(int fd, void *buf, size_t count) {
     if (block_disk_count() == -1) return -1; // not mounted
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
@@ -281,14 +289,25 @@ int fs_write(int fd, void *buf, size_t count) {
 			start_byte = 0;
 			temp_buf += blk_size;
 			write_left -= blk_size;
-			fs_lseek(fd, blk_size);
+			start += blk_size; // add the blk_size to the current offset to update it
+			fs_lseek(fd, start);
 			//
 			if (write_left) {
 				if (fat[block_index] == FAT_EOC) {
 					//make new data block
+					int first_free = get_FAT();
+					if ( first_free == -1 ) { // no FAT open, disk full
+						return count - write_left;
+					} else {
+						fat[block_index] = first_free;
+						fat[first_free] = FAT_EOC;
+						block_index = first_free;
+					}
+				} else {
+					block_index = fat[block_index];
 				}
-				block_index = fat[block_index];
 			}
+			// should there be a continue here ? //
 		}
 		
 		//section: full blocks
@@ -302,15 +321,24 @@ int fs_write(int fd, void *buf, size_t count) {
 			if (write_left) {
 				if (fat[block_index] == FAT_EOC) {
 					//make new data block
+					int first_free = get_FAT();
+					if ( first_free == -1 ) { // no FAT open, disk full
+						return count - write_left // actual number of bytes written
+					} else {
+						fat[block_index] = first_free;
+						fat[first_free] = FAT_EOC;
+						block_index = first_free;
+					}
+				} else {
+					block_index = fat[block_index];
 				}
-				block_index = fat[block_index];
 			}
 			continue;
 		}
 
 		//section: x-end
 		if (block_write(block_index, bounce_buf) < 0) return -1;
-		memcpy(bounce_buf, temp_buf, write_left);
+		memcpy(bounce_buf, temp_buf, write_left); // why is it write_left ???
 		fs_lseek(fd, write_left);
 		write_left = 0;
 	}
