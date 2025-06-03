@@ -166,6 +166,8 @@ int fs_create(const char *filename) {
 int fs_delete(const char *filename) {
 	// check if disk count exists
 	if ( block_disk_count() == -1 ) return -1;
+	// invalid filename
+	if ( !filename ) return -1;
 	// if the file name is > 16, invalid filename
 	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
@@ -189,7 +191,7 @@ int fs_ls(void) {
 		if ( root[i].filename[0] != '\0' ) {
 			printf("file: %s, ", root[i].filename);
 			printf("size: %u, ", root[i].fileSize);
-			printf("data_black: %u\n", root[i].first_data_index);
+			printf("data_block: %u\n", root[i].first_data_index);
 		}
 	}
 	return 0;
@@ -207,7 +209,7 @@ int fs_open(const char *filename) {
 				fd_table[j].on = 1;
 				fd_table[j].root_index = i;
 				fd_table[j].file_offset = 0;
-				return j;
+				return j; // is this right, shouldn't it return i? check tmmr
 			}
 		}
 		return -1; //fd_table full
@@ -221,6 +223,7 @@ int fs_close(int fd) {
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	//close
 	fd_table[fd].on = 0;
+	// do we have to reste root_index?
 	fd_table[fd].file_offset = 0;
 	return 0;
 }
@@ -261,8 +264,6 @@ int get_FAT() {
 	return -1;
 }
 
-// this might be stupid, but when we go to an existing next FAT Block, do we need to recalculate offset of block? or am i tripping
-// i.e. do we need to calculate start_byte every time or nah
 int fs_write(int fd, void *buf, size_t count) {
     if (block_disk_count() == -1) return -1; // not mounted
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
@@ -270,7 +271,7 @@ int fs_write(int fd, void *buf, size_t count) {
 	if (!buf) return -1; // buffer is empty
 	//
 	size_t start = fd_table[fd].file_offset;
-	size_t file_size = fs_stat(fd);
+	// size_t file_size = fs_stat(fd); <- did not use
 	//
 	size_t block_index = start_block_index(fd, start);
 	size_t start_byte = start % BLOCK_SIZE;
@@ -302,6 +303,7 @@ int fs_write(int fd, void *buf, size_t count) {
 						fat[block_index] = first_free;
 						fat[first_free] = FAT_EOC;
 						block_index = first_free;
+						// change the file_size?
 					}
 				} else {
 					block_index = fat[block_index];
@@ -323,11 +325,12 @@ int fs_write(int fd, void *buf, size_t count) {
 					//make new data block
 					int first_free = get_FAT();
 					if ( first_free == -1 ) { // no FAT open, disk full
-						return count - write_left // actual number of bytes written
+						return count - write_left; // actual number of bytes written
 					} else {
 						fat[block_index] = first_free;
 						fat[first_free] = FAT_EOC;
 						block_index = first_free;
+						// change the file_size?
 					}
 				} else {
 					block_index = fat[block_index];
@@ -338,7 +341,7 @@ int fs_write(int fd, void *buf, size_t count) {
 
 		//section: x-end
 		if (block_write(block_index, bounce_buf) < 0) return -1;
-		memcpy(bounce_buf, temp_buf, write_left); // why is it write_left ???
+		memcpy(bounce_buf, temp_buf, write_left);
 		fs_lseek(fd, write_left);
 		write_left = 0;
 	}
