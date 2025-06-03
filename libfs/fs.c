@@ -275,7 +275,7 @@ int fs_write(int fd, void *buf, size_t count) {
 		if (start_byte) {
 			if (block_read(block_index, bounce_buf) < 0) return -1;
 			size_t blk_size = BLOCK_SIZE-start_byte; 
-			memcpy(bounce_buf+start_byte, temp_buf, blk_size);
+			memcpy(bounce_buf, temp_buf, blk_size);
 			if (block_write(block_index, bounce_buf) < 0) return -1;
 			//
 			start_byte = 0;
