@@ -277,7 +277,7 @@ int fs_write(int fd, void *buf, size_t count) {
 	size_t start = fd_table[fd].file_offset;
 
 	
-	if (root[fd_table[fd].root_index].first_data_index == FAT_EOC) {
+	if (root[fd_table[fd].root_index].first_data_index == FAT_EOC && count > 0) {
 		int first_free = get_FAT();
 		if (first_free == -1) return -1; // disk full
 		root[fd_table[fd].root_index].first_data_index = first_free;
@@ -454,3 +454,4 @@ int fs_read(int fd, void *buf, size_t count) {
 	fs_lseek(fd, actual_read); //!might need to double check
 	return (int)actual_read;
 }
+
