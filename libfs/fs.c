@@ -310,14 +310,14 @@ int fs_write(int fd, void *buf, size_t count) {
 			fs_lseek(fd, start+start_byte);
 			//
 			if (write_left) {
-				if (fat[block_index] == FAT_EOC) {
+				if (block_index - sb.data_start_index == FAT_EOC) {
 					//make new data block
 					int first_free = get_FAT();
 					if ( first_free == -1 ) { // no FAT open, disk full
 						 if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-						return count - write_left;
+						 return count - write_left;
 					} else {
-						fat[block_index] = first_free;
+						block_index = first_free;
 						fat[first_free] = FAT_EOC;
 						block_index = sb.data_start_index + first_free;
 						root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
@@ -330,14 +330,14 @@ int fs_write(int fd, void *buf, size_t count) {
 		
 		//section: full blocks
 		if (write_left >= BLOCK_SIZE) {
-			if (fat[block_index] == FAT_EOC) {
+			if ( block_index - sb.data_start_index == FAT_EOC) {
 				//make new data block
 				int first_free = get_FAT();
 				if ( first_free == -1 ) { // no FAT open, disk full
 					if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 					return count - write_left;
 				} else {
-					fat[block_index] = first_free;
+					block_index = first_free;
 					fat[first_free] = FAT_EOC;
 					block_index = sb.data_start_index + first_free;
 					root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
@@ -355,14 +355,14 @@ int fs_write(int fd, void *buf, size_t count) {
 			fs_lseek(fd, fd_table[fd].file_offset+BLOCK_SIZE);
 			//
 			if (write_left) {
-				if (fat[block_index] == FAT_EOC) {
+				if (block_index - sb.data_start_index == FAT_EOC) {
 					//make new data block
 					int first_free = get_FAT();
 					if ( first_free == -1 ) { // no FAT open, disk full
 						if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 						return count - write_left; // actual number of bytes written
 					} else {
-						fat[block_index] = first_free;
+						block_index = first_free;
 						fat[first_free] = FAT_EOC;
 						block_index = sb.data_start_index + first_free;
 						root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
@@ -374,12 +374,8 @@ int fs_write(int fd, void *buf, size_t count) {
 			continue;
 		}
 
-		//printf("blk_idx: %ld\n", block_index);
-		//printf("fat[blk_idx]: %d\n", fat[block_index]);
-
 		//section: x-end
 		if (block_index - sb.data_start_index == FAT_EOC) {
-			//printf("hn\n");
 			//make new data block
 			int first_free = get_FAT();
 			if ( first_free == -1 ) { // no FAT open, disk full
@@ -391,13 +387,8 @@ int fs_write(int fd, void *buf, size_t count) {
 				root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
 			}
 		} else {
-			//printf("here???\n");
 			root[fd_table[fd].root_index].fileSize += write_left;
-			//block_index = fat[block_index];
-			//block_index = sb.data_start_index + block_index;
-			// root[fd_table[fd].root_index].fileSize += write_left;
 		}
-		//printf("writing to block_index: %ld\n", block_index);
 		if (block_write(block_index, temp_buf) < 0) {
 			return -1;
 		}
@@ -409,9 +400,6 @@ int fs_write(int fd, void *buf, size_t count) {
 	} 
 	if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 
-	
-	//printf("file size: %d\n", root[fd_table[fd].root_index].fileSize);
-	//printf("offset: %d\n", fd_table[fd].file_offset);
 	return count;
 }
 
