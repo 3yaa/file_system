@@ -399,7 +399,7 @@ int fs_read(int fd, void *buf, size_t count) {
 	if (start >= file_size) return 0; //nothing to read
 	size_t to_read = (start+count > file_size) ? file_size - start : count;
 	//
-	size_t block_index = start_block_index(fd, start);
+	size_t block_index = sb.data_start_index + start_block_index(fd, start);
 	size_t start_byte = start % BLOCK_SIZE; //where to start in block
 	uint8_t bounce_buf[BLOCK_SIZE];
 	uint8_t *temp_buf = buf;
@@ -416,6 +416,7 @@ int fs_read(int fd, void *buf, size_t count) {
 		if (read_left) {
 			block_index = fat[block_index];
 			if (block_index == FAT_EOC) break;
+			block_index = sb.data_start_index + block_index;
 		}
 	}
 	size_t actual_read = to_read-read_left;
