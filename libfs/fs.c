@@ -68,7 +68,8 @@ int fs_mount(const char *diskname) {
     	return -1;
 	}
 	//load fat
-	fat = calloc((size_t)sb.data_block_count, BLOCK_SIZE);
+	// fat = calloc((size_t)sb.data_block_count, sizeof(uint16_t));
+	fat = calloc((size_t)sb.fat_block_count * BLOCK_SIZE, 1);
 	if (!fat) {
 		block_disk_close();
 		return -1;
@@ -92,17 +93,15 @@ int fs_mount(const char *diskname) {
 
 int fs_umount(void) {
 	if ( block_disk_count() == -1 ) { return -1; }
-
 	if ( block_write(0, &sb) == -1 ) { return -1; }
 
 	for ( int i = 0; i < sb.fat_block_count; i++ ) { 
-		if ( block_write(1 + i, &fat[i]) == -1 ) { return -1; }
+		if (block_write(1+i, (uint8_t*)fat+(i*BLOCK_SIZE)) == -1) return -1;
 	}
+
 	free(fat);
 	fat = NULL;
-
-	if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; }
-
+	if ( block_write(sb.root_dir_index, root) == -1 ) { return -1; }
 	if ( block_disk_close() == -1 ) { return -1; }
 
 	return 0;
@@ -147,7 +146,8 @@ int fs_create(const char *filename) {
 	// @index: index of first free file
 	int index = FS_FILE_MAX_COUNT;
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-		if ( memcmp(root[i].filename, filename, strlen(filename) ) == 0 ) {
+		if ( strcmp(root[i].filename, filename) == 0 ) { //compare until '\0'
+			printf("hi\n");
 		 	return -1; //filename alrdy exists
 		}
 		if ( root[i].filename[0] == '\0' && i < index) {
@@ -162,7 +162,7 @@ int fs_create(const char *filename) {
 	root[index].first_data_index = FAT_EOC;
 	root[index].fileSize = 0; 
 	//put into disk?--write root into disk
-	if ( block_write(sb.root_dir_index, &root) == -1 ) { 
+	if ( block_write(sb.root_dir_index, root) == -1 ) { 
 		return -1; 
 	} 
 	return 0;
@@ -176,16 +176,37 @@ int fs_delete(const char *filename) {
 	// if the file name is > 16, invalid filename
 	if ( strlen(filename) >= FS_FILENAME_LEN ) return -1;
 
-	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
-		if ( memcmp(root[i].filename, filename, strlen(filename)) == 0)  {
-			root[i].filename[0] = '\0'; 
-			root[i].fileSize = 0;
-			root[i].first_data_index = FAT_EOC; 
-			if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-			return 0;
+	//find file
+	int found_index = -1;
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(root[i].filename, filename) == 0) {
+			found_index = i;
+			break;
 		}
 	}
-	return -1;
+	if (found_index == -1) return -1; //file not found
+	//check if open
+	for (int i = 0; i < FS_OPEN_MAX_COUNT; i++) {
+		if (fd_table[i].on && fd_table[i].root_index == found_index) {
+			return -1;//!what do we do if file is open and want to delete?
+		}
+	}
+	//free data
+	uint16_t cur_blk = root[found_index].first_data_index;
+	while (cur_blk != FAT_EOC && cur_blk < sb.data_block_count) { //traverse ll
+		uint16_t next_blk = fat[cur_blk];
+		fat[cur_blk] = 0;
+		cur_blk = next_blk;
+	}
+	//free root
+	memset(&root[found_index], 0, sizeof(struct root_entry));
+	root[found_index].first_data_index = FAT_EOC;
+	//update disk
+	if (block_write(sb.root_dir_index, root) == -1) return -1;
+	for (int i = 0; i < sb.fat_block_count; i++) {
+		if (block_write((1+i), (uint8_t*)fat+(i*BLOCK_SIZE)) == -1) return -1;
+	}
+	return 0;
 }
 
 int fs_ls(void) {
@@ -207,9 +228,9 @@ int fs_open(const char *filename) {
 	if (!filename) return -1; //no filename
 	if (strlen(filename) >= FS_FILENAME_LEN) return -1; //invalid filename-size
 	//check for open fd
-	for (size_t i = 0; i < FS_FILE_MAX_COUNT; i++) {
-		if (memcmp(root[i].filename, filename, strlen(filename)) != 0) continue;
-		for (size_t j = 0; j < FS_OPEN_MAX_COUNT; j++) {
+	for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+		if (strcmp(root[i].filename, filename) != 0) continue;
+		for (int j = 0; j < FS_OPEN_MAX_COUNT; j++) {
 			if (!fd_table[j].on) {
 				fd_table[j].on = 1;
 				fd_table[j].root_index = i;
@@ -251,17 +272,17 @@ int fs_lseek(int fd, size_t offset) {
 	return 0;
 }
 
-static size_t start_block_index(int fd, size_t offset) {
-	size_t start_index = root[fd_table[fd].root_index].first_data_index;
+static uint16_t get_block_index(int fd, size_t offset) {
+	uint16_t start_index = root[fd_table[fd].root_index].first_data_index;
 	size_t skipped_blocks = offset/BLOCK_SIZE;
-	while (skipped_blocks && start_index != FAT_EOC) {
+	while (skipped_blocks > 0 && start_index != FAT_EOC) {
 		start_index = fat[start_index];
 		skipped_blocks--;
 	}
 	return start_index; 
 }
 
-int get_FAT() {
+static int get_free_fat() {
 	for( int i = 0; i < sb.data_block_count; i++ ) {
 		if ( fat[i] == 0 ) { return i; } 
 	}
@@ -273,139 +294,62 @@ int fs_write(int fd, void *buf, size_t count) {
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; // buffer is empty
+	if (count == 0) return 0; //nothing to do
 	//
-	size_t start = fd_table[fd].file_offset;
-
-	
-	if (root[fd_table[fd].root_index].first_data_index == FAT_EOC && count > 0) {
-		int first_free = get_FAT();
+	size_t bytes_written = 0;
+	uint8_t bounce_buf[BLOCK_SIZE];
+	uint8_t *temp_buf = (uint8_t*)buf;
+	size_t cur_offset = fd_table[fd].file_offset;
+	//file empty--allocate first data_block
+	if (root[fd_table[fd].root_index].first_data_index == FAT_EOC) {
+		int first_free = get_free_fat();
 		if (first_free == -1) return -1; // disk full
 		root[fd_table[fd].root_index].first_data_index = first_free;
 		fat[first_free] = FAT_EOC;
 	}
-
-	size_t block_index = sb.data_start_index + start_block_index(fd, start);
-	size_t start_byte = start % BLOCK_SIZE;
-	uint8_t bounce_buf[BLOCK_SIZE];
-	uint8_t *temp_buf = buf;
-	size_t write_left = count;
-	
-	while (write_left > 0) {
-
-		//section: start-x
-		if (start_byte) {
-			if (block_read(block_index, bounce_buf) < 0) {	
-				return -1;
-			}
-			size_t max_blk_size = BLOCK_SIZE - start_byte;
-			size_t blk_size = write_left;
-			if ( blk_size > max_blk_size ) {
-				blk_size = BLOCK_SIZE-start_byte; 
-			}
-			memcpy(bounce_buf, temp_buf, blk_size);
-			if (block_write(block_index, bounce_buf) < 0) {
-				return -1;
-			}
+	//
+	while (bytes_written < count) {
+		uint16_t cur_block = get_block_index(fd, cur_offset);
+		//need new block
+		if (cur_block == FAT_EOC) {
+			int first_free = get_free_fat();
+			if (first_free == -1) break; //disk full
 			//
-			start_byte = 0;
-			temp_buf += blk_size;
-			write_left -= blk_size;
-			start += blk_size; // add the blk_size to the current offset to update it
-			root[fd_table[fd].root_index].fileSize += blk_size;
-			fs_lseek(fd, start+start_byte);
+			uint16_t last_block = get_block_index(fd, cur_offset-1);
+			if (last_block == FAT_EOC) break; //sanity check
 			//
-			if (write_left) {
-				if (block_index - sb.data_start_index == FAT_EOC) {
-					//make new data block
-					int first_free = get_FAT();
-					if ( first_free == -1 ) { // no FAT open, disk full
-						 if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-						 return count - write_left;
-					} else {
-						block_index = first_free;
-						fat[first_free] = FAT_EOC;
-						block_index = sb.data_start_index + first_free;
-						root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
-					}
-				} else {
-					block_index = fat[block_index];	
-				}	
-			}
-		}	
-		//section: full blocks
-		else if (write_left >= BLOCK_SIZE) {
-			if ( block_index - sb.data_start_index == FAT_EOC) {
-				//make new data block
-				int first_free = get_FAT();
-				if ( first_free == -1 ) { // no FAT open, disk full
-					if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-					return count - write_left;
-				} else {
-					block_index = first_free;
-					fat[first_free] = FAT_EOC;
-					block_index = sb.data_start_index + first_free;
-					root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
-				}
-			} else {
-				block_index = fat[block_index];
-			}
-
-			if (block_write(block_index, bounce_buf) < 0) {
-				return -1;
-			}
-			//
-			temp_buf += BLOCK_SIZE;
-			write_left -= BLOCK_SIZE;
-			fs_lseek(fd, fd_table[fd].file_offset+BLOCK_SIZE);
-			//
-			if (write_left) {
-				if (block_index - sb.data_start_index == FAT_EOC) {
-					//make new data block
-					int first_free = get_FAT();
-					if ( first_free == -1 ) { // no FAT open, disk full
-						if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-						return count - write_left; // actual number of bytes written
-					} else {
-						block_index = first_free;
-						fat[first_free] = FAT_EOC;
-						block_index = sb.data_start_index + first_free;
-						root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
-					}
-				} else {
-					block_index = fat[block_index];
-				}
-			}
-			continue;
+			fat[last_block] = first_free; //links the new block
+			fat[first_free] = FAT_EOC; //makes tail NULL
+			cur_block = first_free; //sets cur to block
 		}
-		else {
-			//section: x-end
-			if (block_index - sb.data_start_index == FAT_EOC) {
-				//make new data block
-				int first_free = get_FAT();
-				if ( first_free == -1 ) { // no FAT open, disk full
-					if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-					return count - write_left;
-				} else {
-					block_index = first_free + sb.data_start_index;
-					fat[first_free] = FAT_EOC;
-					root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
-				}
-			} else {
-				root[fd_table[fd].root_index].fileSize += write_left;
-			}
-			if (block_write(block_index, temp_buf) < 0) {
-				return -1;
-			}
-			fs_lseek(fd, fd_table[fd].file_offset+write_left);
-			write_left = 0;
+		//calc block offset
+		size_t block_offset = cur_offset % BLOCK_SIZE;
+		size_t bytes_write = BLOCK_SIZE - block_offset;
+		if (bytes_write > count-bytes_written) bytes_write = count - bytes_written;
+		//
+		uint16_t cur_blk_idx = sb.data_start_index + cur_block;
+		//read existing data
+		if (block_offset != 0 || bytes_write != BLOCK_SIZE) {
+			if (block_read(cur_blk_idx, bounce_buf) < 0) break;
 		}
+		//write data
+		memcpy(bounce_buf+block_offset, temp_buf+bytes_written, bytes_write);
+		if (block_write(cur_blk_idx, bounce_buf) < 0) break;
+		//
+		bytes_written += bytes_write;
+		cur_offset += bytes_write;
 	}
-	if (fd_table[fd].file_offset > root[fd_table[fd].root_index].fileSize) {
-		root[fd_table[fd].root_index].fileSize = fd_table[fd].file_offset;
-	} 
-	if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
-
-	return count;
+	//
+	fs_lseek(fd, cur_offset);
+	if ((int)cur_offset > fs_stat(fd)) {
+		root[fd_table[fd].root_index].fileSize = cur_offset;
+	}
+	//write root && fat
+	if (block_write(sb.root_dir_index, root) < 0) return -1;
+	for (int i = 0; i < sb.fat_block_count; i++) {
+		if (block_write(1+i, (uint8_t*)fat+(i*BLOCK_SIZE)) < 0) return -1;
+	}
+	return bytes_written;
 }
 
 int fs_read(int fd, void *buf, size_t count) {
@@ -413,41 +357,31 @@ int fs_read(int fd, void *buf, size_t count) {
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
 	if (!fd_table[fd].on) return -1; //invalid fd-not in use
 	if (!buf) return -1; //invalid buf
+	if (count == 0) return 0; //nothing to read
 	//
-	size_t start = fd_table[fd].file_offset;
+	size_t bytes_read = 0;
 	size_t file_size = fs_stat(fd);
-	if (start >= file_size) return 0; //nothing to read
-	size_t to_read = (start+count > file_size) ? file_size - start : count;
-	//
-	size_t block_index = sb.data_start_index + start_block_index(fd, start);
-	if ( block_index > FAT_EOC ) { block_index -= FAT_EOC; }
-	size_t start_byte = start % BLOCK_SIZE; //where to start in block
 	uint8_t bounce_buf[BLOCK_SIZE];
-	uint8_t *temp_buf = buf;
-	size_t read_left = to_read;
-	while (read_left > 0) {
-		if (block_read(block_index, bounce_buf) < 0) {
-			return -1;
-		}
-		size_t max_block_chunk = BLOCK_SIZE - start_byte;
-		size_t block_chunk = read_left;
-		if ( block_chunk > max_block_chunk ) {
-			block_chunk = max_block_chunk;
-		}
-		if (block_chunk > read_left) block_chunk = read_left;
-		memcpy(temp_buf, bounce_buf, block_chunk);
+	uint8_t *temp_buf = (uint8_t*)buf;
+	size_t cur_offset = fd_table[fd].file_offset;
+	if (cur_offset >= file_size) return 0; //nothing to read
+	size_t to_read = (cur_offset+count > file_size) ? file_size - cur_offset : count;
+	//
+	while (bytes_read < to_read) {
+		uint16_t cur_block = get_block_index(fd, cur_offset);
+		if (cur_block == FAT_EOC) break;
+		//partial block
+		size_t block_offset = cur_offset % BLOCK_SIZE;
+		size_t block_chunk = BLOCK_SIZE - block_offset;
+		if (block_chunk > to_read-bytes_read) block_chunk = to_read - bytes_read;
+		//read
+		uint16_t cur_blk_idx = sb.data_start_index + cur_block;
+		if (block_read(cur_blk_idx, bounce_buf) < 0) break;
+		memcpy(temp_buf+bytes_read, bounce_buf+block_offset, block_chunk);
 		//next block
-		start_byte = 0; //after first no longer needs
-		read_left -= block_chunk;
-		temp_buf += block_chunk;
-		if (read_left) {
-			block_index = fat[block_index];
-			if (block_index == FAT_EOC) break;
-			block_index = sb.data_start_index + block_index;
-		}
+		bytes_read += block_chunk;
+		cur_offset += block_chunk;
 	}
-	size_t actual_read = to_read-read_left;
-	fs_lseek(fd, actual_read); //!might need to double check
-	return (int)actual_read;
+	fs_lseek(fd, cur_offset);
+	return bytes_read;
 }
-
