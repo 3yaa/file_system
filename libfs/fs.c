@@ -133,13 +133,6 @@ int fs_info(void) {
 	return 0;
 }
 
-int get_FAT() {
-	for( int i = 0; i < sb.data_block_count; i++ ) {
-		if ( fat[i] == 0 ) { return i; } 
-	}
-	return -1;
-}
-
 // might have to do datablock stuff
 int fs_create(const char *filename) {
 	// return -1 if disk count is empty
@@ -166,7 +159,7 @@ int fs_create(const char *filename) {
 	}
 	memset(root[index].filename, 0, FS_FILENAME_LEN);
     memcpy(root[index].filename, filename, strlen(filename));
-	root[index].first_data_index = get_FAT();
+	root[index].first_data_index = FAT_EOC;
 	root[index].fileSize = 0; 
 	//put into disk?--write root into disk
 	if ( block_write(sb.root_dir_index, &root) == -1 ) { 
@@ -268,6 +261,13 @@ static size_t start_block_index(int fd, size_t offset) {
 	return start_index; 
 }
 
+int get_FAT() {
+	for( int i = 0; i < sb.data_block_count; i++ ) {
+		if ( fat[i] == 0 ) { return i; } 
+	}
+	return -1;
+}
+
 int fs_write(int fd, void *buf, size_t count) {
     if (block_disk_count() == -1) return -1; // not mounted
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
@@ -275,6 +275,7 @@ int fs_write(int fd, void *buf, size_t count) {
 	if (!buf) return -1; // buffer is empty
 	//
 	size_t start = fd_table[fd].file_offset;
+	if ( root[fd].first_data_index == FAT_EOC ) { root[fd].first_data_index = get_FAT(); }
 	size_t block_index = sb.data_start_index + start_block_index(fd, start);
 	size_t start_byte = start % BLOCK_SIZE;
 	uint8_t bounce_buf[BLOCK_SIZE];
