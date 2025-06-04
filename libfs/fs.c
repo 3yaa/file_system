@@ -275,7 +275,15 @@ int fs_write(int fd, void *buf, size_t count) {
 	if (!buf) return -1; // buffer is empty
 	//
 	size_t start = fd_table[fd].file_offset;
-	if ( root[fd].first_data_index == FAT_EOC ) { root[fd].first_data_index = get_FAT(); }
+	if ( root[fd_table[fd].root_index].first_data_index == FAT_EOC ) { root[fd].first_data_index = get_FAT(); }
+	
+	// if (root[fd_table[fd].root_index].first_data_index == FAT_EOC) {
+	// 	int first_free = get_FAT();
+	// 	if (first_free == -1) return -1; // disk full
+	// 	root[fd_table[fd].root_index].first_data_index = first_free;
+	// 	fat[first_free] = FAT_EOC;
+	// }
+
 	size_t block_index = sb.data_start_index + start_block_index(fd, start);
 	size_t start_byte = start % BLOCK_SIZE;
 	uint8_t bounce_buf[BLOCK_SIZE];
