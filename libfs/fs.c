@@ -133,6 +133,13 @@ int fs_info(void) {
 	return 0;
 }
 
+int get_FAT() {
+	for( int i = 0; i < sb.data_block_count; i++ ) {
+		if ( fat[i] == 0 ) { return i; } 
+	}
+	return -1;
+}
+
 // might have to do datablock stuff
 int fs_create(const char *filename) {
 	// return -1 if disk count is empty
@@ -159,8 +166,8 @@ int fs_create(const char *filename) {
 	}
 	memset(root[index].filename, 0, FS_FILENAME_LEN);
     memcpy(root[index].filename, filename, strlen(filename));
-	root[index].fileSize = 0;
-	root[index].first_data_index = FAT_EOC;
+	root[index].first_data_index = get_FAT();
+	root[index].fileSize = 0; 
 	//put into disk?--write root into disk
 	if ( block_write(sb.root_dir_index, &root) == -1 ) { 
 		return -1; 
@@ -261,18 +268,6 @@ static size_t start_block_index(int fd, size_t offset) {
 	return start_index; 
 }
 
-int get_FAT() {
-	for( int i = 0; i < sb.data_block_count; i++ ) {
-		if ( fat[i] == 0 ) { return i; } 
-	}
-	return -1;
-}
-
-/*
-1. fat table isn't linked properly
-	2. fat table isn't allocated properly
-*/
-
 int fs_write(int fd, void *buf, size_t count) {
     if (block_disk_count() == -1) return -1; // not mounted
 	if (fd < 0 || fd >= FS_OPEN_MAX_COUNT) return -1; //invalid fd-out_bound
@@ -370,27 +365,30 @@ int fs_write(int fd, void *buf, size_t count) {
 			continue;
 		}
 
-		printf("blk_idx: %ld\n", block_index);
-		printf("fat[blk_idx]: %d\n", fat[block_index]);
+		//printf("blk_idx: %ld\n", block_index);
+		//printf("fat[blk_idx]: %d\n", fat[block_index]);
 
 		//section: x-end
-		if (block_index == FAT_EOC) {
-			printf("hn\n");
+		if (block_index - sb.data_start_index == FAT_EOC) {
+			//printf("hn\n");
 			//make new data block
 			int first_free = get_FAT();
 			if ( first_free == -1 ) { // no FAT open, disk full
 				if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 				return count - write_left;
 			} else {
-				fat[block_index] = first_free;
+				block_index = first_free + sb.data_start_index;
 				fat[first_free] = FAT_EOC;
 				root[fd_table[fd].root_index].fileSize += BLOCK_SIZE;
 			}
 		} else {
-			block_index = fat[block_index];
-			block_index = sb.data_start_index + block_index;
+			//printf("here???\n");
+			root[fd_table[fd].root_index].fileSize += write_left;
+			//block_index = fat[block_index];
+			//block_index = sb.data_start_index + block_index;
 			// root[fd_table[fd].root_index].fileSize += write_left;
 		}
+		//printf("writing to block_index: %ld\n", block_index);
 		if (block_write(block_index, temp_buf) < 0) {
 			return -1;
 		}
@@ -403,8 +401,8 @@ int fs_write(int fd, void *buf, size_t count) {
 	if ( block_write(sb.root_dir_index, &root) == -1 ) { return -1; } // might be wrong lol
 
 	
-	printf("file size: %d\n", root[fd_table[fd].root_index].fileSize);
-	printf("offset: %d\n", fd_table[fd].file_offset);
+	//printf("file size: %d\n", root[fd_table[fd].root_index].fileSize);
+	//printf("offset: %d\n", fd_table[fd].file_offset);
 	return count;
 }
 
@@ -415,11 +413,15 @@ int fs_read(int fd, void *buf, size_t count) {
 	if (!buf) return -1; //invalid buf
 	//
 	size_t start = fd_table[fd].file_offset;
+	//printf("start is %ld\n", start);
 	size_t file_size = fs_stat(fd);
 	if (start >= file_size) return 0; //nothing to read
 	size_t to_read = (start+count > file_size) ? file_size - start : count;
 	//
 	size_t block_index = sb.data_start_index + start_block_index(fd, start);
+	if ( block_index > FAT_EOC ) { block_index -= FAT_EOC; }
+	//printf("block index for read is %ld\n", block_index);
+	//printf("start block index is %d\n", sb.data_start_index);
 	size_t start_byte = start % BLOCK_SIZE; //where to start in block
 	uint8_t bounce_buf[BLOCK_SIZE];
 	uint8_t *temp_buf = buf;
