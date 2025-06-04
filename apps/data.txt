@@ -1,40 +1,47 @@
-int fs_open(const char *filename) {
-    (void)filename;
-    /* TODO: Phase 3 */
-    return 0;
-}
+#include <assert.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-int fs_close(int fd) {
-    (void)fd;
-    /* TODO: Phase 3 */
-    return 0;
-}
+#include <fs.h>
 
-int fs_stat(int fd) {
-    (void)fd;
-    /* TODO: Phase 3 */
-    return 0;
-}
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-int fs_lseek(int fd, size_t offset) {
-    (void)fd;
-    (void)offset;
-    /* TODO: Phase 3 */
-    return 0;
-}
+#define test_fs_error(fmt, ...) \
+	fprintf(stderr, "%s: "fmt"\n", __func__, ##__VA_ARGS__)
 
-int fs_write(int fd, void *buf, size_t count) {
-    (void)fd;
-    (void)buf;
-    (void)count;
-    /* TODO: Phase 4 */
-    return 0;
-}
+#define die(...)				\
+do {							\
+	test_fs_error(__VA_ARGS__);	\
+	exit(1);					\
+} while (0)
 
-int fs_read(int fd, void *buf, size_t count) {
-    (void)fd;
-    (void)buf;
-    (void)count;
-    /* TODO: Phase 4 */
-    return 0;
-}
+#define die_perror(msg)			\
+do {							\
+	perror(msg);				\
+	exit(1);					\
+} while (0)
+
+
+struct thread_arg {
+	int argc;
+	char **argv;
+};
+
+void thread_fs_script(void *arg)
+{
+	struct thread_arg *t_arg = arg;
+	struct stat st;
+	char *diskname, *script;
+	FILE *fd_script;
+	char *command, *data_source, *data_description, *data, *fs_filename;
+	const int total_command_parts = 4;
+	char *command_args[total_command_parts];
+	int offset;
+	char mounted = 0;

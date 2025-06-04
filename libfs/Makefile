@@ -16,4 +16,4 @@ $(LIB): $(OBJ)
 
 .PHONY: clean
 clean:
-	$(RM) $(OBJ) $(LIB)
+	rm -f $(OBJ) $(LIB)
