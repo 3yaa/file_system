@@ -147,7 +147,6 @@ int fs_create(const char *filename) {
 	int index = FS_FILE_MAX_COUNT;
   	for ( int i = 0; i < FS_FILE_MAX_COUNT; i++ ) {
 		if ( strcmp(root[i].filename, filename) == 0 ) { //compare until '\0'
-			printf("hi\n");
 		 	return -1; //filename alrdy exists
 		}
 		if ( root[i].filename[0] == '\0' && i < index) {
@@ -303,7 +302,7 @@ int fs_write(int fd, void *buf, size_t count) {
 	//file empty--allocate first data_block
 	if (root[fd_table[fd].root_index].first_data_index == FAT_EOC) {
 		int first_free = get_free_fat();
-		if (first_free == -1) return -1; // disk full
+		if (first_free == -1) return 0; // disk full
 		root[fd_table[fd].root_index].first_data_index = first_free;
 		fat[first_free] = FAT_EOC;
 	}
